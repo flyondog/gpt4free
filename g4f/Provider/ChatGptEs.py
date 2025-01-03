@@ -12,17 +12,14 @@ from .helper import format_prompt
 class ChatGptEs(AsyncGeneratorProvider, ProviderModelMixin):
     url = "https://chatgpt.es"
     api_endpoint = "https://chatgpt.es/wp-admin/admin-ajax.php"
+    
     working = True
     supports_stream = True
     supports_system_message = True
     supports_message_history = True
     
     default_model = 'gpt-4o'
-    models = ['gpt-4o', 'gpt-4o-mini', 'chatgpt-4o-latest']
-    
-    model_aliases = {
-        "gpt-4o": "chatgpt-4o-latest",
-    }
+    models = ['gpt-4', 'gpt-4o', 'gpt-4o-mini']
 
     @classmethod
     def get_model(cls, model: str) -> str:
@@ -56,9 +53,9 @@ class ChatGptEs(AsyncGeneratorProvider, ProviderModelMixin):
             nonce_ = re.findall(r'data-nonce="(.+?)"', await initial_response.text())[0]
             post_id = re.findall(r'data-post-id="(.+?)"', await initial_response.text())[0]
 
-            conversation_history = [
-                "Human: strictly respond in the same language as my prompt, preferably English"
-            ]
+            formatted_prompt = format_prompt(messages)
+                      
+            conversation_history = []
 
             for message in messages[:-1]:
                 if message['role'] == "user":
@@ -67,11 +64,12 @@ class ChatGptEs(AsyncGeneratorProvider, ProviderModelMixin):
                     conversation_history.append(f"AI: {message['content']}")
 
             payload = {
+                'wpaicg_user_agree': '1',
                 '_wpnonce': nonce_,
                 'post_id': post_id,
                 'url': cls.url,
                 'action': 'wpaicg_chat_shortcode_message',
-                'message': messages[-1]['content'],
+                'message': formatted_prompt,
                 'bot_id': '0',
                 'chatbot_identity': 'shortcode',
                 'wpaicg_chat_client_id': os.urandom(5).hex(),
@@ -81,4 +79,6 @@ class ChatGptEs(AsyncGeneratorProvider, ProviderModelMixin):
             async with session.post(cls.api_endpoint, headers=headers, data=payload) as response:
                 response.raise_for_status()
                 result = await response.json()
+                if "Du musst das Kästchen anklicken!" in result['data']:
+                    raise ValueError(result['data'])
                 yield result['data']
